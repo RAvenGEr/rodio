@@ -20,6 +20,8 @@ use ::symphonia::core::io::{MediaSource, MediaSourceStream};
 mod flac;
 #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
 mod mp3;
+#[cfg(feature = "opus")]
+mod opus;
 #[cfg(feature = "symphonia")]
 mod read_seek_source;
 #[cfg(feature = "symphonia")]
@@ -52,6 +54,8 @@ where
     Flac(flac::FlacDecoder<R>),
     #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
     Mp3(mp3::Mp3Decoder<R>),
+    #[cfg(feature = "opus")]
+    Opus(opus::OpusDecoder<R>),
     #[cfg(feature = "symphonia")]
     Symphonia(symphonia::SymphoniaDecoder),
     None(::std::marker::PhantomData<R>),
@@ -79,6 +83,14 @@ where
             Err(data) => data,
             Ok(decoder) => {
                 return Ok(Decoder(DecoderImpl::Flac(decoder)));
+            }
+        };
+
+        #[cfg(feature = "opus")]
+        let data = match opus::OpusDecoder::new(data) {
+            Err(data) => data,
+            Ok(decoder) => {
+                return Ok(Decoder(DecoderImpl::Opus(decoder)));
             }
         };
 
@@ -155,6 +167,15 @@ where
         match vorbis::VorbisDecoder::new(data) {
             Err(_) => Err(DecoderError::UnrecognizedFormat),
             Ok(decoder) => Ok(Decoder(DecoderImpl::Vorbis(decoder))),
+        }
+    }
+
+    /// Builds a new decoder from opus data.
+    #[cfg(feature = "opus")]
+    pub fn new_opus(data: R) -> Result<Decoder<R>, DecoderError> {
+        match opus::OpusDecoder::new(data) {
+            Err(_) => Err(DecoderError::UnrecognizedFormat),
+            Ok(decoder) => Ok(Decoder(DecoderImpl::Opus(decoder))),
         }
     }
 
@@ -270,6 +291,8 @@ where
             DecoderImpl::Flac(source) => source.next(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.next(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.next(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.next(),
             DecoderImpl::None(_) => None,
@@ -287,6 +310,8 @@ where
             DecoderImpl::Flac(source) => source.size_hint(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.size_hint(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.size_hint(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.size_hint(),
             DecoderImpl::None(_) => (0, None),
@@ -309,6 +334,8 @@ where
             DecoderImpl::Flac(source) => source.current_frame_len(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.current_frame_len(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.current_frame_len(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.current_frame_len(),
             DecoderImpl::None(_) => Some(0),
@@ -326,6 +353,8 @@ where
             DecoderImpl::Flac(source) => source.channels(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.channels(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.channels(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.channels(),
             DecoderImpl::None(_) => 0,
@@ -343,6 +372,8 @@ where
             DecoderImpl::Flac(source) => source.sample_rate(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.sample_rate(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.sample_rate(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.sample_rate(),
             DecoderImpl::None(_) => 1,
@@ -360,6 +391,8 @@ where
             DecoderImpl::Flac(source) => source.total_duration(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.total_duration(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.total_duration(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.total_duration(),
             DecoderImpl::None(_) => Some(Duration::default()),
@@ -384,6 +417,8 @@ where
             DecoderImpl::Flac(source) => source.next(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.next(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.next(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.next(),
             DecoderImpl::None(_) => None,
@@ -427,6 +462,14 @@ where
                     let sample = source.next();
                     (DecoderImpl::Mp3(source), sample)
                 }
+                #[cfg(feature = "opus")]
+                DecoderImpl::Opus(source) => {
+                    let mut reader = source.into_inner();
+                    reader.seek_bytes(SeekFrom::Start(0)).ok()?;
+                    let mut source = opus::OpusDecoder::from_packet_reader(reader).ok()?;
+                    let sample = source.next();
+                    (DecoderImpl::Opus(source), sample)
+                }
                 #[cfg(feature = "symphonia")]
                 DecoderImpl::Symphonia(source) => {
                     let mut reader = Box::new(source).into_inner();
@@ -453,6 +496,8 @@ where
             DecoderImpl::Flac(source) => (source.size_hint().0, None),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => (source.size_hint().0, None),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => (source.size_hint().0, None),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => (source.size_hint().0, None),
             DecoderImpl::None(_) => (0, None),
@@ -475,6 +520,8 @@ where
             DecoderImpl::Flac(source) => source.current_frame_len(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.current_frame_len(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.current_frame_len(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.current_frame_len(),
             DecoderImpl::None(_) => Some(0),
@@ -492,6 +539,8 @@ where
             DecoderImpl::Flac(source) => source.channels(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.channels(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.channels(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.channels(),
             DecoderImpl::None(_) => 0,
@@ -509,6 +558,8 @@ where
             DecoderImpl::Flac(source) => source.sample_rate(),
             #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
             DecoderImpl::Mp3(source) => source.sample_rate(),
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(source) => source.sample_rate(),
             #[cfg(feature = "symphonia")]
             DecoderImpl::Symphonia(source) => source.sample_rate(),
             DecoderImpl::None(_) => 1,
