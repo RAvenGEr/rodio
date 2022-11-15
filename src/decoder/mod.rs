@@ -14,7 +14,7 @@ use crate::Source;
 #[cfg(feature = "symphonia")]
 use self::read_seek_source::ReadSeekSource;
 #[cfg(feature = "symphonia")]
-use ::symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 
 #[cfg(all(feature = "flac", not(feature = "symphonia-flac")))]
 mod flac;
@@ -271,6 +271,30 @@ where
 {
     fn new(decoder: Decoder<R>) -> LoopedDecoder<R> {
         Self(decoder.0)
+    }
+}
+
+impl<R> fmt::Display for Decoder<R>
+where
+    R: Read + Seek,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match self.0 {
+            #[cfg(all(feature = "wav", not(feature = "symphonia-wav")))]
+            DecoderImpl::Wav(_) => "WAV",
+            #[cfg(all(feature = "vorbis", not(feature = "symphonia-vorbis")))]
+            DecoderImpl::Vorbis(_) => "Vorbis",
+            #[cfg(all(feature = "flac", not(feature = "symphonia-flac")))]
+            DecoderImpl::Flac(_) => "FLAC",
+            #[cfg(all(feature = "mp3", not(feature = "symphonia-mp3")))]
+            DecoderImpl::Mp3(_) => "MP3",
+            #[cfg(feature = "opus")]
+            DecoderImpl::Opus(_) => "Opus",
+            #[cfg(feature = "symphonia")]
+            DecoderImpl::Symphonia(_) => "Symphonia",
+            DecoderImpl::None(_) => "None",
+        };
+        write!(f, "{} Decoder", text)
     }
 }
 
